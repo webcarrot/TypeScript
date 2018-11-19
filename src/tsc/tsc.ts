@@ -190,7 +190,10 @@ namespace ts {
         }
 
         // TODO: change this to host if watch => watchHost otherwiue without wathc
-        const builder = createSolutionBuilder(createSolutionBuilderWithWatchHost(sys, reportDiagnostic, createBuilderStatusReporter(sys, shouldBePretty()), createWatchStatusReporter()), projects, buildOptions);
+        const buildHost = createSolutionBuilderWithWatchHost(sys, reportDiagnostic, createBuilderStatusReporter(sys, shouldBePretty()), createWatchStatusReporter());
+        buildHost.beforeCreateProgram = enableStatistics;
+        buildHost.afterProgramEmitAndDiagnostics = reportStatistics;
+        const builder = createSolutionBuilder(buildHost, projects, buildOptions);
         if (buildOptions.clean) {
             return sys.exit(builder.cleanAllProjects());
         }

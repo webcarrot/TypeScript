@@ -29,6 +29,8 @@ namespace ts {
         preserveWatchOutput?: boolean;
         listEmittedFiles?: boolean;
         listFiles?: boolean;
+        /* @internal */ diagnostics?: boolean;
+        /* @internal */ extendedDiagnostics?: boolean;
     }
 
     enum BuildResultFlags {
@@ -323,6 +325,13 @@ namespace ts {
 
         reportDiagnostic: DiagnosticReporter; // Technically we want to move it out and allow steps of actions on Solution, but for now just merge stuff in build host here
         reportSolutionBuilderStatus: DiagnosticReporter;
+
+        // TODO: To do better with watch mode and normal build mode api that creates program and emits files
+        // This currently helps enable --diagnostics and --extendedDiagnostics
+        
+        beforeCreateProgram?(options: CompilerOptions): void;
+        /** If provided, callback to invoke after every new program creation */
+        afterProgramEmitAndDiagnostics?(program: Program): void;
     }
 
     export interface SolutionBuilderWithWatchHost extends SolutionBuilderHost, WatchHost {
@@ -981,7 +990,6 @@ namespace ts {
             }
         }
 
-
         function buildSingleProject(proj: ResolvedConfigFileName): BuildResultFlags {
             if (options.dry) {
                 reportStatus(Diagnostics.A_non_dry_build_would_build_project_0, proj);
@@ -1011,8 +1019,11 @@ namespace ts {
                 host,
                 rootNames: configFile.fileNames,
                 options: configFile.options,
-                configFileParsingDiagnostics: configFile.errors
+                configFileParsingDiagnostics: configFile.errors                
             };
+            if (host.beforeCreateProgram) {
+                host.beforeCreateProgram(options);
+            }
             const program = createProgram(programOptions);
 
             // Don't emit anything in the presence of syntactic errors or options diagnostics
@@ -1071,12 +1082,18 @@ namespace ts {
                 newestDeclarationFileContentChangedTime: anyDtsChanged ? maximumDate : newestDeclarationFileContentChangedTime
             };
             projectStatus.setValue(proj, status);
+            if (host.afterProgramEmitAndDiagnostics) {
+                host.afterProgramEmitAndDiagnostics(program);
+            }
             return resultFlags;
 
             function buildErrors(diagnostics: ReadonlyArray<Diagnostic>, errorFlags: BuildResultFlags, errorType: string) {
                 resultFlags |= errorFlags;
                 reportAndStoreErrors(proj, diagnostics);
                 projectStatus.setValue(proj, { type: UpToDateStatusType.Unbuildable, reason: `${errorType} errors` });
+                if (host.afterProgramEmitAndDiagnostics) {
+                    host.afterProgramEmitAndDiagnostics(program);
+                }
                 return resultFlags;
             }
         }
