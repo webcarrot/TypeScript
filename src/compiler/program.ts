@@ -664,6 +664,7 @@ namespace ts {
         // A parallel array to projectReferences storing the results of reading in the referenced tsconfig files
         let resolvedProjectReferences: (ResolvedProjectReference | undefined)[] | undefined = projectReferences ? [] : undefined;
         let projectReferenceRedirects: ParsedCommandLine[] | undefined;
+        let mapFromFileNameToProjectReferenceRedirects: Map<number> | undefined;
 
         const shouldCreateNewSourceFile = shouldProgramCreateNewSourceFiles(oldProgram, options);
         const structuralIsReused = tryReuseStructureFromOldProgram();
@@ -2178,19 +2179,25 @@ namespace ts {
                 return undefined;
             }
 
+            if (mapFromFileNameToProjectReferenceRedirects === undefined) {
+                mapFromFileNameToProjectReferenceRedirects = createMap();
+                projectReferenceRedirects.forEach((referencedProject, index) =>
+                    referencedProject.fileNames.forEach(f =>
+                        mapFromFileNameToProjectReferenceRedirects!.set(toPath(f), index)
+                    )
+                );
+            }
+
+            const refProjectIndex = mapFromFileNameToProjectReferenceRedirects.get(toPath(fileName));
+            if (refProjectIndex === undefined) return undefined;
+
             // If this file is produced by a referenced project, we need to rewrite it to
             // look in the output folder of the referenced project rather than the input
-            return forEach(projectReferenceRedirects, referencedProject => {
-                // not input file from the referenced project, ignore
-                if (!contains(referencedProject.fileNames, fileName, isSameFile)) {
-                    return undefined;
-                }
-
-                const out = referencedProject.options.outFile || referencedProject.options.out;
-                return out ?
-                    changeExtension(out, Extension.Dts) :
-                    getOutputDeclarationFileName(fileName, referencedProject);
-            });
+            const referencedProject = projectReferenceRedirects[refProjectIndex];
+            const out = referencedProject.options.outFile || referencedProject.options.out;
+            return out ?
+                changeExtension(out, Extension.Dts) :
+                getOutputDeclarationFileName(fileName, referencedProject);
         }
 
         function processReferencedFiles(file: SourceFile, isDefaultLib: boolean) {
