@@ -477,6 +477,13 @@ namespace ts {
             description: Diagnostics.Specify_module_resolution_strategy_Colon_node_Node_js_or_classic_TypeScript_pre_1_6,
         },
         {
+            name: "customModuleResolution",
+            type: "string",
+            affectsModuleResolution: true,
+            isFilePath: true,
+            category: Diagnostics.Module_Resolution_Options,
+        },
+        {
             name: "baseUrl",
             type: "string",
             affectsModuleResolution: true,

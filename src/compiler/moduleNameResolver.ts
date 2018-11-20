@@ -591,6 +591,44 @@ namespace ts {
         return perFolderCache && perFolderCache.get(moduleName);
     }
 
+    const CustomModuleResolutionCache: {[key:string]: CustomModuleResolutionFuction | null } = {};
+
+    function getCustomModuleResolutionFunction(compilerOptions: CompilerOptions): CustomModuleResolutionFuction | null  {
+      if (compilerOptions.customModuleResolution) {
+        // FIXME: require
+        const { join, isAbsolute } = require("path");
+        let customModuleResolutionPath;
+        if (isAbsolute(compilerOptions.customModuleResolution)) {
+          customModuleResolutionPath = compilerOptions.customModuleResolution;
+        } else if (compilerOptions.customModuleResolution.indexOf(".") === 0) {
+          customModuleResolutionPath = join(compilerOptions.baseUrl, compilerOptions.customModuleResolution);
+        } else {
+          customModuleResolutionPath = join(compilerOptions.baseUrl, "node_modules", compilerOptions.customModuleResolution);
+        }
+        if (customModuleResolutionPath in CustomModuleResolutionCache) {
+          return CustomModuleResolutionCache[customModuleResolutionPath];
+        }
+        try {
+          // FIXME: require
+          const customModuleResolutionExport = require(customModuleResolutionPath);
+          if (customModuleResolutionExport instanceof Function) {
+            CustomModuleResolutionCache[customModuleResolutionPath] = customModuleResolutionExport;
+          } else if (customModuleResolutionExport.default instanceof Function) {
+            CustomModuleResolutionCache[customModuleResolutionPath] = customModuleResolutionExport.default;
+          } else {
+            // FIXME: trace error
+            CustomModuleResolutionCache[customModuleResolutionPath] = null;
+          }
+        } catch (_) {
+          // FIXME: trace error
+          CustomModuleResolutionCache[customModuleResolutionPath] = null;
+        }
+        return CustomModuleResolutionCache[customModuleResolutionPath];
+      } else {
+        return null;
+      }
+    }
+
     export function resolveModuleName(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost, cache?: ModuleResolutionCache, redirectedReference?: ResolvedProjectReference): ResolvedModuleWithFailedLookupLocations {
         const traceEnabled = isTraceEnabled(compilerOptions, host);
         if (redirectedReference) {
@@ -612,30 +650,40 @@ namespace ts {
             }
         }
         else {
-            let moduleResolution = compilerOptions.moduleResolution;
-            if (moduleResolution === undefined) {
-                moduleResolution = getEmitModuleKind(compilerOptions) === ModuleKind.CommonJS ? ModuleResolutionKind.NodeJs : ModuleResolutionKind.Classic;
-                if (traceEnabled) {
-                    trace(host, Diagnostics.Module_resolution_kind_is_not_specified_using_0, ModuleResolutionKind[moduleResolution]);
-                }
-            }
-            else {
-                if (traceEnabled) {
-                    trace(host, Diagnostics.Explicitly_specified_module_resolution_kind_Colon_0, ModuleResolutionKind[moduleResolution]);
-                }
+            const customModuleResolutionFuction = getCustomModuleResolutionFunction(compilerOptions);
+            if (customModuleResolutionFuction) {
+              try {
+                result = customModuleResolutionFuction(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
+              } catch (_) {
+                // FIXME: trace error
+              }
             }
 
-            switch (moduleResolution) {
-                case ModuleResolutionKind.NodeJs:
-                    result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
-                    break;
-                case ModuleResolutionKind.Classic:
-                    result = classicNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
-                    break;
-                default:
-                    return Debug.fail(`Unexpected moduleResolution: ${moduleResolution}`);
-            }
+            if (!result) {
+              let moduleResolution = compilerOptions.moduleResolution;
+              if (moduleResolution === undefined) {
+                  moduleResolution = getEmitModuleKind(compilerOptions) === ModuleKind.CommonJS ? ModuleResolutionKind.NodeJs : ModuleResolutionKind.Classic;
+                  if (traceEnabled) {
+                      trace(host, Diagnostics.Module_resolution_kind_is_not_specified_using_0, ModuleResolutionKind[moduleResolution]);
+                  }
+              }
+              else {
+                  if (traceEnabled) {
+                      trace(host, Diagnostics.Explicitly_specified_module_resolution_kind_Colon_0, ModuleResolutionKind[moduleResolution]);
+                  }
+              }
 
+              switch (moduleResolution) {
+                  case ModuleResolutionKind.NodeJs:
+                      result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
+                      break;
+                  case ModuleResolutionKind.Classic:
+                      result = classicNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
+                      break;
+                  default:
+                      return Debug.fail(`Unexpected moduleResolution: ${moduleResolution}`);
+              }
+            }
             if (perFolderCache) {
                 perFolderCache.set(moduleName, result);
                 if (!isExternalModuleNameRelative(moduleName)) {

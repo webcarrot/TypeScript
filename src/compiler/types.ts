@@ -4518,6 +4518,7 @@ namespace ts {
         maxNodeModuleJsDepth?: number;
         module?: ModuleKind;
         moduleResolution?: ModuleResolutionKind;
+        customModuleResolution?: string;
         newLine?: NewLineKind;
         noEmit?: boolean;
         /*@internal*/noEmitForJsFiles?: boolean;
@@ -4576,6 +4577,8 @@ namespace ts {
 
         [option: string]: CompilerOptionsValue | TsConfigSourceFile | undefined;
     }
+
+    export type CustomModuleResolutionFuction = (moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost, cache?: ModuleResolutionCache, redirectedReference?: ResolvedProjectReference) => (ResolvedModuleWithFailedLookupLocations | undefined);
 
     export interface TypeAcquisition {
         /* @deprecated typingOptions.enableAutoDiscovery
