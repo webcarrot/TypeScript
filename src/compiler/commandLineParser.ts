@@ -163,6 +163,7 @@ namespace ts {
             name: "project",
             shortName: "p",
             type: "string",
+
             isFilePath: true,
             showInSimplifiedHelpView: true,
             category: Diagnostics.Command_line_Options,
@@ -480,7 +481,6 @@ namespace ts {
             name: "customModuleResolution",
             type: "string",
             affectsModuleResolution: true,
-            isFilePath: true,
             category: Diagnostics.Module_Resolution_Options,
         },
         {
