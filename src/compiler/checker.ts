@@ -1482,7 +1482,7 @@ namespace ts {
             // We just climbed up parents looking for the name, meaning that we started in a descendant node of `lastLocation`.
             // If `result === lastSelfReferenceLocation.symbol`, that means that we are somewhere inside `lastSelfReferenceLocation` looking up a name, and resolving to `lastLocation` itself.
             // That means that this is a self-reference of `lastLocation`, and shouldn't count this when considering whether `lastLocation` is used.
-            if (isUse && result && (!lastSelfReferenceLocation || result !== lastSelfReferenceLocation.symbol) && !isInTypeQuery(originalLocation!)) {
+            if (isUse && result && (!lastSelfReferenceLocation || result !== lastSelfReferenceLocation.symbol)) {
                 result.isReferenced! |= meaning;
             }
 
@@ -9410,8 +9410,13 @@ namespace ts {
             if (!(getDeclarationModifierFlagsFromSymbol(prop) & ModifierFlags.NonPublicAccessibilityModifier)) {
                 let type = getLateBoundSymbol(prop).nameType;
                 if (!type && !isKnownSymbol(prop)) {
-                    const name = prop.valueDeclaration && getNameOfDeclaration(prop.valueDeclaration) as PropertyName;
-                    type = name && getLiteralTypeFromPropertyName(name) || getLiteralType(symbolName(prop));
+                    if (prop.escapedName === InternalSymbolName.Default) {
+                        type = getLiteralType("default");
+                    }
+                    else {
+                        const name = prop.valueDeclaration && getNameOfDeclaration(prop.valueDeclaration) as PropertyName;
+                        type = name && getLiteralTypeFromPropertyName(name) || getLiteralType(symbolName(prop));
+                    }
                 }
                 if (type && type.flags & include) {
                     return type;
@@ -11920,7 +11925,8 @@ namespace ts {
                         findMatchingDiscriminantType(source, target) ||
                         findMatchingTypeReferenceOrTypeAliasReference(source, target) ||
                         findBestTypeForObjectLiteral(source, target) ||
-                        findBestTypeForInvokable(source, target);
+                        findBestTypeForInvokable(source, target) ||
+                        findMostOverlappyType(source, target);
 
                     isRelatedTo(source, bestMatchingType || targetTypes[targetTypes.length - 1], /*reportErrors*/ true);
                 }
@@ -11958,6 +11964,34 @@ namespace ts {
                 if (hasSignatures) {
                     return find(unionTarget.types, t => getSignaturesOfType(t, signatureKind).length > 0);
                 }
+            }
+
+            function findMostOverlappyType(source: Type, unionTarget: UnionOrIntersectionType) {
+                let bestMatch: Type | undefined;
+                let matchingCount = 0;
+                for (const target of unionTarget.types) {
+                    const overlap = getIntersectionType([getIndexType(source), getIndexType(target)]);
+                    if (overlap.flags & TypeFlags.Index) {
+                        // perfect overlap of keys
+                        bestMatch = target;
+                        matchingCount = Infinity;
+                    }
+                    else if (overlap.flags & TypeFlags.Union) {
+                        // Some subset overlap if we have only string literals.
+                        // If we have a union of index types, it seems likely that we
+                        // needed to elaborate between two generic mapped types anyway.
+                        const len = length((overlap as UnionType).types);
+                        if (len >= matchingCount) {
+                            bestMatch = target;
+                            matchingCount = len;
+                        }
+                    }
+                    else if (!(overlap.flags & TypeFlags.Never) && 1 >= matchingCount) {
+                        bestMatch = target;
+                        matchingCount = 1;
+                    }
+                }
+                return bestMatch;
             }
 
             // Keep this up-to-date with the same logic within `getApparentTypeOfContextualType`, since they should behave similarly
@@ -12225,7 +12259,8 @@ namespace ts {
                 else if (target.flags & TypeFlags.IndexedAccess) {
                     // A type S is related to a type T[K], where T and K aren't both type variables, if S is related to C,
                     // where C is the base constraint of T[K]
-                    if (relation !== identityRelation && !(isGenericObjectType((<IndexedAccessType>target).objectType) && isGenericIndexType((<IndexedAccessType>target).indexType))) {
+                    if (relation !== identityRelation && relation !== definitelyAssignableRelation &&
+                        !(isGenericObjectType((<IndexedAccessType>target).objectType) && isGenericIndexType((<IndexedAccessType>target).indexType))) {
                         const constraint = getBaseConstraintOfType(target);
                         if (constraint && constraint !== target) {
                             if (result = isRelatedTo(source, constraint, reportErrors)) {
@@ -19025,7 +19060,7 @@ namespace ts {
         }
 
         function markPropertyAsReferenced(prop: Symbol, nodeForCheckWriteOnly: Node | undefined, isThisAccess: boolean) {
-            if (nodeForCheckWriteOnly && isInTypeQuery(nodeForCheckWriteOnly) || !(prop.flags & SymbolFlags.ClassMember) || !prop.valueDeclaration || !hasModifier(prop.valueDeclaration, ModifierFlags.Private)) {
+            if (!prop || !(prop.flags & SymbolFlags.ClassMember) || !prop.valueDeclaration || !hasModifier(prop.valueDeclaration, ModifierFlags.Private)) {
                 return;
             }
             if (nodeForCheckWriteOnly && isWriteOnlyAccess(nodeForCheckWriteOnly) && !(prop.flags & SymbolFlags.SetAccessor && !(prop.flags & SymbolFlags.GetAccessor))) {
@@ -20844,6 +20879,7 @@ namespace ts {
                     if (hasSyntheticDefault) {
                         const memberTable = createSymbolTable();
                         const newSymbol = createSymbol(SymbolFlags.Alias, InternalSymbolName.Default);
+                        newSymbol.nameType = getLiteralType("default");
                         newSymbol.target = resolveSymbol(symbol);
                         memberTable.set(InternalSymbolName.Default, newSymbol);
                         const anonymousSymbol = createSymbol(SymbolFlags.TypeLiteral, InternalSymbolName.Type);
