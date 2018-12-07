@@ -1700,6 +1700,8 @@ namespace ts {
                 listFiles: undefined,
                 listEmittedFiles: undefined,
                 project: undefined,
+                build: undefined,
+                version: undefined,
             },
             references: map(configParseResult.projectReferences, r => ({ ...r, path: r.originalPath, originalPath: undefined })),
             files: length(files) ? files : undefined,
@@ -1737,7 +1739,7 @@ namespace ts {
     }
 
     function getCustomTypeMapOfCommandLineOption(optionDefinition: CommandLineOption): Map<string | number> | undefined {
-        if (optionDefinition.type === "string" || optionDefinition.type === "number" || optionDefinition.type === "boolean") {
+        if (optionDefinition.type === "string" || optionDefinition.type === "number" || optionDefinition.type === "boolean" || optionDefinition.type === "object") {
             // this is of a type CommandLineOptionOfPrimitiveType
             return undefined;
         }
@@ -1900,7 +1902,7 @@ namespace ts {
             }
             result.push(`}`);
 
-            return result.join(newLine);
+            return result.join(newLine) + newLine;
         }
     }
 
