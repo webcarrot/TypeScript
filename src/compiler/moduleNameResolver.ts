@@ -591,41 +591,96 @@ namespace ts {
         return perFolderCache && perFolderCache.get(moduleName);
     }
 
-    const CustomModuleResolutionCache: {[key:string]: CustomModuleResolutionFuction | null } = {};
+    const CUSTOM_MODULE_RESOLUTION_CACHE: {[key: string]: CustomModuleResolutionFuction | undefined } = {};
 
-    function getCustomModuleResolutionFunction(compilerOptions: CompilerOptions): CustomModuleResolutionFuction | null  {
+    function getCustomModuleResolutionFunction(compilerOptions: CompilerOptions): CustomModuleResolutionFuction | undefined {
       if (compilerOptions.customModuleResolution) {
         // FIXME: require
-        const { join, isAbsolute } = require("path");
+        const { isAbsolute, dirname } = require("path");
+        let rootPath: string | undefined;
+        if (compilerOptions.baseUrl) {
+          rootPath = compilerOptions.baseUrl;
+        }
+        else if (
+          compilerOptions.typeRoots &&
+          compilerOptions.typeRoots.length
+        ) {
+          for (const typeRoot of compilerOptions.typeRoots) {
+            const nodeIndex = typeRoot.indexOf("node_modules");
+            if (nodeIndex !== -1) {
+              rootPath = typeRoot.substr(0, nodeIndex);
+              break;
+            }
+          }
+        }
+        else if (compilerOptions.configFilePath) {
+          rootPath = dirname(compilerOptions.configFilePath);
+        }
+        if (rootPath === undefined) {
+          return undefined;
+        }
         let customModuleResolutionPath;
         if (isAbsolute(compilerOptions.customModuleResolution)) {
           customModuleResolutionPath = compilerOptions.customModuleResolution;
-        } else if (compilerOptions.customModuleResolution.indexOf(".") === 0) {
-          customModuleResolutionPath = join(compilerOptions.baseUrl, compilerOptions.customModuleResolution);
-        } else {
-          customModuleResolutionPath = join(compilerOptions.baseUrl, "node_modules", compilerOptions.customModuleResolution);
         }
-        if (customModuleResolutionPath in CustomModuleResolutionCache) {
-          return CustomModuleResolutionCache[customModuleResolutionPath];
+        else if (compilerOptions.customModuleResolution.indexOf(".") === 0) {
+          customModuleResolutionPath = combinePaths(
+            rootPath,
+            compilerOptions.customModuleResolution
+          );
+        }
+        else {
+          customModuleResolutionPath = combinePaths(
+            rootPath,
+            "node_modules",
+            compilerOptions.customModuleResolution
+          );
+        }
+        if (customModuleResolutionPath in CUSTOM_MODULE_RESOLUTION_CACHE) {
+          return CUSTOM_MODULE_RESOLUTION_CACHE[customModuleResolutionPath];
         }
         try {
           // FIXME: require
           const customModuleResolutionExport = require(customModuleResolutionPath);
+          let customModuleResolutionFunction: CustomModuleResolutionFuction | undefined;
           if (customModuleResolutionExport instanceof Function) {
-            CustomModuleResolutionCache[customModuleResolutionPath] = customModuleResolutionExport;
-          } else if (customModuleResolutionExport.default instanceof Function) {
-            CustomModuleResolutionCache[customModuleResolutionPath] = customModuleResolutionExport.default;
-          } else {
-            // FIXME: trace error
-            CustomModuleResolutionCache[customModuleResolutionPath] = null;
+            customModuleResolutionFunction = customModuleResolutionExport;
           }
-        } catch (_) {
-          // FIXME: trace error
-          CustomModuleResolutionCache[customModuleResolutionPath] = null;
+          else if (customModuleResolutionExport.default instanceof Function) {
+            customModuleResolutionFunction = customModuleResolutionExport.default;
+          }
+          if (customModuleResolutionFunction !== undefined) {
+            const baseUrl = rootPath;
+            const cb: CustomModuleResolutionFuction = customModuleResolutionFunction;
+            CUSTOM_MODULE_RESOLUTION_CACHE[customModuleResolutionPath] = (
+              moduleName: string,
+              containingFile: string,
+              compilerOptions: CompilerOptions,
+              ...rest
+            ) =>
+              cb(
+                moduleName,
+                containingFile,
+                {
+                  baseUrl,
+                  ...compilerOptions
+                },
+                ...rest
+              );
+          }
+          else {
+            // FIXME: trace error
+            CUSTOM_MODULE_RESOLUTION_CACHE[customModuleResolutionPath] = undefined;
+          }
         }
-        return CustomModuleResolutionCache[customModuleResolutionPath];
-      } else {
-        return null;
+        catch (_) {
+          // FIXME: trace error
+          CUSTOM_MODULE_RESOLUTION_CACHE[customModuleResolutionPath] = undefined;
+        }
+        return CUSTOM_MODULE_RESOLUTION_CACHE[customModuleResolutionPath];
+      }
+      else {
+        return undefined;
       }
     }
 
@@ -654,7 +709,8 @@ namespace ts {
             if (customModuleResolutionFuction) {
               try {
                 result = customModuleResolutionFuction(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
-              } catch (_) {
+              }
+              catch (_) {
                 // FIXME: trace error
               }
             }
