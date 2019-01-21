@@ -163,7 +163,6 @@ namespace ts {
             name: "project",
             shortName: "p",
             type: "string",
-
             isFilePath: true,
             showInSimplifiedHelpView: true,
             category: Diagnostics.Command_line_Options,
